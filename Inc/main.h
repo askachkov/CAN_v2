@@ -61,6 +61,8 @@
 
 #define PIN_CAN120_Pin GPIO_PIN_0
 #define PIN_CAN120_GPIO_Port GPIOA
+#define CAN_CS_Pin GPIO_PIN_4
+#define CAN_CS_GPIO_Port GPIOA
 
 /* ########################## Assert Selection ############################## */
 /**

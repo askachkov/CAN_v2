@@ -50,6 +50,7 @@
 #include "main.h"
 #include "stm32f0xx_hal.h"
 #include "usb_device.h"
+#include "CANSPI.h"
 
 /* USER CODE BEGIN Includes */
 #include "usbd_cdc_if.h"
@@ -72,6 +73,9 @@ State CURRENT_STATE = State_Off;
 
 char * PIN_SET_MSG = "Pin set\r\n";
 char * PIN_RESET_MSG = "Pin reset\r\n";
+
+uCAN_MSG txMessage;
+uCAN_MSG rxMessage;
 
 /* USER CODE END PV */
 
@@ -129,7 +133,7 @@ int main(void)
   MX_USB_DEVICE_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
-	
+	 CANSPI_Initialize();	
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -175,8 +179,8 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
-  RCC_OscInitStruct.PLL.PREDIV = RCC_PREDIV_DIV2;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL3;
+  RCC_OscInitStruct.PLL.PREDIV = RCC_PREDIV_DIV1;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     _Error_Handler(__FILE__, __LINE__);
