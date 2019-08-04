@@ -1,6 +1,8 @@
 #ifndef __MCP2515_H
 #define	__MCP2515_H
 
+#ifdef MCP2515_ENABLED
+
 #pragma anon_unions
 #include "stm32f0xx_hal.h"
 
@@ -234,4 +236,5 @@ uint8_t MCP2515_ReadStatus(void);
 uint8_t MCP2515_GetRxStatus(void);
 void MCP2515_BitModify(uint8_t address, uint8_t mask, uint8_t data);
 
-#endif
+#endif//MCP2515_ENABLED
+#endif//H

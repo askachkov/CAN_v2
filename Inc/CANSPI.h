@@ -2,6 +2,9 @@
 #define	__CAN_SPI_H
 
 #include "stm32f0xx_hal.h"
+#include "MCP2515.h"
+
+#ifdef MCP2515_ENABLED
 
 #ifndef TRUE 
 #define TRUE 1
@@ -41,3 +44,4 @@ uint8_t CANSPI_isRxErrorPassive(void);
 uint8_t CANSPI_isTxErrorPassive(void);
 
 #endif	/* __CAN_SPI_H */
+#endif//MCP2515_ENABLED

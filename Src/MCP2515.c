@@ -1,5 +1,5 @@
 #include "MCP2515.h"
-
+#ifdef MCP2515_ENABLED
 /* Pin ??? ?? ????. Modify below items for your SPI configurations */
 extern SPI_HandleTypeDef        hspi1;
 #define SPI_CAN                 &hspi1
@@ -251,3 +251,4 @@ static void SPI_RxBuffer(uint8_t *buffer, uint8_t length)
 {
   HAL_SPI_Receive(SPI_CAN, buffer, length, SPI_TIMEOUT);
 }
+#endif//MCP2515_ENABLED

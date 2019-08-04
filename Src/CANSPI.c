@@ -1,5 +1,5 @@
 #include "CANSPI.h"
-#include "MCP2515.h"
+#ifdef MCP2515_ENABLED
 
 /** Local Function Prototypes */  
 static uint32_t convertReg2ExtendedCANid(uint8_t tempRXBn_EIDH, uint8_t tempRXBn_EIDL, uint8_t tempRXBn_SIDH, uint8_t tempRXBn_SIDL);
@@ -359,3 +359,4 @@ static void convertCANid2Reg(uint32_t tempPassedInID, uint8_t canIdType, id_reg_
     passedIdReg->tempSIDH = 0xFF & tempPassedInID;
   }
 }
+#endif//MCP2515_ENABLED
