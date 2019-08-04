@@ -1,6 +1,10 @@
 #ifndef __MCP2515_H
 #define	__MCP2515_H
 
+#ifndef MCP2515_ENABLED
+#define MCP2515_ENABLED
+#endif//MCP2515_ENABLED
+
 #ifdef MCP2515_ENABLED
 
 #pragma anon_unions
