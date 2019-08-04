@@ -73,34 +73,21 @@ typedef enum
 State PREV_STATE = State_Off;
 State CURRENT_STATE = State_Off;
 
-char MSG_BUFFER[512];
-
 typedef struct
 {
 	uint8_t size;
-	char* text;
+	char text[64];
 } LogRecord;
 
-LogRecord LOGS_QUEUE[LOG_RECORDS_SIZE];
-
-int QUEUE_CURSOR = 0;
-int MSG_BUF_CURSOR = 0;
+LogRecord LOGS_QUEUE;
 
 #define pushLogQueueF(frmt, ... ) \
-	LOGS_QUEUE[QUEUE_CURSOR].text = MSG_BUFFER+MSG_BUF_CURSOR;\
-	sprintf(LOGS_QUEUE[QUEUE_CURSOR].text, frmt"\r\n", __VA_ARGS__ );\
-	LOGS_QUEUE[QUEUE_CURSOR].size = strlen(LOGS_QUEUE[QUEUE_CURSOR].text);\
-	MSG_BUF_CURSOR = MSG_BUF_CURSOR + LOGS_QUEUE[QUEUE_CURSOR].size + 1;\
-  if ( MSG_BUF_CURSOR > 490 ) MSG_BUF_CURSOR = 0;\
-	QUEUE_CURSOR++;
-
+	sprintf(LOGS_QUEUE.text, frmt"\r\n", __VA_ARGS__ );\
+	LOGS_QUEUE.size = strlen(LOGS_QUEUE.text);
+	
 LogRecord popLogQueue()
 {
-	LogRecord ret = LOGS_QUEUE[0];
-	for ( int i = 0; i < QUEUE_CURSOR-1; ++i ){
-		LOGS_QUEUE[i] = LOGS_QUEUE[i+1];
-	}
-	QUEUE_CURSOR--;
+	LogRecord ret = LOGS_QUEUE;
 	return ret;
 }
 
@@ -141,6 +128,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
 	uint8_t ret = 0;
+	uint8_t ret2 = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -178,23 +166,35 @@ int main(void)
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
+		
+		if ( LOGS_QUEUE.size > 0 ){
+			LogRecord rec = popLogQueue();
+			CDC_Transmit_FS((uint8_t*)rec.text, rec.size);
+			LOGS_QUEUE.size = 0;
+		}
+		
 		if ( CURRENT_STATE != PREV_STATE ){
 			switch(CURRENT_STATE){
 				case State_On:
 					HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_SET);
-					while ( QUEUE_CURSOR ){
-						LogRecord rec = popLogQueue();
-						CDC_Transmit_FS((uint8_t*)rec.text, rec.size);
-					}
-					//CDC_Transmit_FS((uint8_t*)PIN_SET_MSG, 10);
+					PREV_STATE = CURRENT_STATE;
 					break;
 				case State_Off:
-					//HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_RESET);
+					HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_RESET);
 					ret = CANSPI_Transmit(&txMessage);
-					pushLogQueueF("CANSPI_Transmit with res: %d", ret);
+					ret2 = CANSPI_isTxErrorPassive();
+					pushLogQueueF("CANSPI_Transmit with res: %d; Error: %d", ret, ret2);
+				
+					if ( ret2 != 0) {
+						MCP2515_Reset();
+						HAL_Delay(1);
+						ret = CANSPI_Initialize();
+						//pushLogQueueF("CANSPI_Initialize with res: %d", ret);
+					}
+					PREV_STATE = State_On;
+					CURRENT_STATE = State_On;
 					break;
 			};
-			PREV_STATE = CURRENT_STATE;
 		}
 		
   }
@@ -232,7 +232,7 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
   {
@@ -271,7 +271,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
