@@ -62,6 +62,8 @@ SPI_HandleTypeDef hspi1;
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
+#define LOG_RECORDS_SIZE 8
+
 typedef enum
 {
 	State_Off,
@@ -71,8 +73,37 @@ typedef enum
 State PREV_STATE = State_Off;
 State CURRENT_STATE = State_Off;
 
-char * PIN_SET_MSG = "Pin set\r\n";
-char * PIN_RESET_MSG = "Pin reset\r\n";
+char MSG_BUFFER[512];
+
+typedef struct
+{
+	uint8_t size;
+	char* text;
+} LogRecord;
+
+LogRecord LOGS_QUEUE[LOG_RECORDS_SIZE];
+
+int QUEUE_CURSOR = 0;
+int MSG_BUF_CURSOR = 0;
+
+#define pushLogQueueF(frmt, ... ) \
+	LOGS_QUEUE[QUEUE_CURSOR].text = MSG_BUFFER+MSG_BUF_CURSOR;\
+	sprintf(LOGS_QUEUE[QUEUE_CURSOR].text, frmt"\r\n", __VA_ARGS__ );\
+	LOGS_QUEUE[QUEUE_CURSOR].size = strlen(LOGS_QUEUE[QUEUE_CURSOR].text);\
+	MSG_BUF_CURSOR = MSG_BUF_CURSOR + LOGS_QUEUE[QUEUE_CURSOR].size + 1;\
+  if ( MSG_BUF_CURSOR > 490 ) MSG_BUF_CURSOR = 0;\
+	QUEUE_CURSOR++;
+
+LogRecord popLogQueue()
+{
+	LogRecord ret = LOGS_QUEUE[0];
+	for ( int i = 0; i < QUEUE_CURSOR-1; ++i ){
+		LOGS_QUEUE[i] = LOGS_QUEUE[i+1];
+	}
+	QUEUE_CURSOR--;
+	return ret;
+}
+
 #ifdef MCP2515_ENABLED
 uCAN_MSG txMessage;
 uCAN_MSG rxMessage;
@@ -109,7 +140,7 @@ void USBD_Reciever_USER(uint8_t * Buf, uint32_t *Len)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	uint8_t ret = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -134,9 +165,8 @@ int main(void)
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 #ifdef MCP2515_ENABLED
-	if( FALSE == CANSPI_Initialize() ){
-		HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_SET);
-	}
+	ret = CANSPI_Initialize();
+	pushLogQueueF("CANSPI_Initialize with res: %d", ret);
 #endif//MCP2515_ENABLED
   /* USER CODE END 2 */
 
@@ -152,15 +182,21 @@ int main(void)
 			switch(CURRENT_STATE){
 				case State_On:
 					HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_SET);
-					CDC_Transmit_FS((uint8_t*)PIN_SET_MSG, 10);
+					while ( QUEUE_CURSOR ){
+						LogRecord rec = popLogQueue();
+						CDC_Transmit_FS((uint8_t*)rec.text, rec.size);
+					}
+					//CDC_Transmit_FS((uint8_t*)PIN_SET_MSG, 10);
 					break;
 				case State_Off:
-					HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_RESET);
-					CDC_Transmit_FS((uint8_t*)PIN_RESET_MSG, 12);
+					//HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_RESET);
+					ret = CANSPI_Transmit(&txMessage);
+					pushLogQueueF("CANSPI_Transmit with res: %d", ret);
 					break;
 			};
 			PREV_STATE = CURRENT_STATE;
 		}
+		
   }
   /* USER CODE END 3 */
 

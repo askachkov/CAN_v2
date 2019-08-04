@@ -81,11 +81,11 @@ uint8_t CANSPI_Initialize(void)
   
   /* MCP2515 ???, SPI ?? ?? ?? */
   if(!MCP2515_Initialize())
-    return FALSE;
+    return 1;
     
   /* Configuration ??? ?? */
   if(!MCP2515_SetConfigMode())
-    return FALSE;
+    return 2;
   
   /* Filter & Mask ? ?? */
   MCP2515_WriteByteSequence(MCP2515_RXM0SIDH, MCP2515_RXM0EID0, &(RXM0reg.RXM0SIDH));
@@ -119,9 +119,9 @@ uint8_t CANSPI_Initialize(void)
   
   /* Normal ??? ?? */
   if(!MCP2515_SetNormalMode())
-    return FALSE;
+    return 3;
   
-  return TRUE;
+  return 0;
 }
 
 /* CAN ??? ?? */
@@ -157,7 +157,7 @@ uint8_t CANSPI_Transmit(uCAN_MSG *tempCanMsg)
     MCP2515_LoadTxSequence(MCP2515_LOAD_TXB1SIDH, &(idReg.tempSIDH), tempCanMsg->frame.dlc, &(tempCanMsg->frame.data0));
     MCP2515_RequestToSend(MCP2515_RTS_TX1);
     
-    returnValue = 1;
+    returnValue = 2;
   }
   else if (ctrlStatus.TXB2REQ != 1)
   {
@@ -166,7 +166,7 @@ uint8_t CANSPI_Transmit(uCAN_MSG *tempCanMsg)
     MCP2515_LoadTxSequence(MCP2515_LOAD_TXB2SIDH, &(idReg.tempSIDH), tempCanMsg->frame.dlc, &(tempCanMsg->frame.data0));
     MCP2515_RequestToSend(MCP2515_RTS_TX2);
     
-    returnValue = 1;
+    returnValue = 3;
   }
   
   return (returnValue);
