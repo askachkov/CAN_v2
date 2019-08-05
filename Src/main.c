@@ -153,6 +153,20 @@ int main(void)
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 #ifdef MCP2515_ENABLED
+
+	txMessage.frame.idType = dSTANDARD_CAN_MSG_ID_2_0B;
+	txMessage.frame.id = 0x0A;
+	txMessage.frame.dlc = 8;
+	txMessage.frame.data0 = 0;
+	txMessage.frame.data1 = 1;
+	txMessage.frame.data2 = 2;
+	txMessage.frame.data3 = 3;
+	txMessage.frame.data4 = 4;
+	txMessage.frame.data5 = 5;
+	txMessage.frame.data6 = 6;
+	txMessage.frame.data7 = 7;
+	CANSPI_Transmit(&txMessage);
+
 	ret = CANSPI_Initialize();
 	pushLogQueueF("CANSPI_Initialize with res: %d", ret);
 #endif//MCP2515_ENABLED
@@ -172,6 +186,24 @@ int main(void)
 			CDC_Transmit_FS((uint8_t*)rec.text, rec.size);
 			LOGS_QUEUE.size = 0;
 		}
+		
+		if(CANSPI_Receive(&rxMessage))
+    {
+			/*
+      txMessage.frame.idType = rxMessage.frame.idType;
+      txMessage.frame.id = rxMessage.frame.id;
+      txMessage.frame.dlc = rxMessage.frame.dlc;
+      txMessage.frame.data0++;
+      txMessage.frame.data1 = rxMessage.frame.data1;
+      txMessage.frame.data2 = rxMessage.frame.data2;
+      txMessage.frame.data3 = rxMessage.frame.data3;
+      txMessage.frame.data4 = rxMessage.frame.data4;
+      txMessage.frame.data5 = rxMessage.frame.data5;
+      txMessage.frame.data6 = rxMessage.frame.data6;
+      txMessage.frame.data7 = rxMessage.frame.data7;
+      CANSPI_Transmit(&txMessage);
+			*/
+    }
 		
 		if ( CURRENT_STATE != PREV_STATE ){
 			switch(CURRENT_STATE){
