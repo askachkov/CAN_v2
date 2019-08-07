@@ -62,16 +62,32 @@ SPI_HandleTypeDef hspi1;
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
+#define BOOL uint8_t
 #define LOG_RECORDS_SIZE 8
 
 typedef enum
 {
-	State_Off,
-	State_On,
-} State;
+	Command_Tx = -2,
+	Command_Invalid = -1,
+	Command_Turn_CAN120_On = 0,
+	Command_Turn_CAN120_Off,
+	Command_Handshake_Comes,
+	Command_MAX,
+} Command;
 
-State PREV_STATE = State_Off;
-State CURRENT_STATE = State_Off;
+typedef enum 
+{
+	Status_Error_CANSPI_Was_Not_initilized 		= (1 << 0),
+	Status_Error_CANSPI_Transmit 							= (1 << 1),
+	Status_Error_CANSPI_Transmit_Passive 			= (1 << 2),
+	Status_Error_CANSPI_Recieve_Passive 			= (1 << 3),
+	Status_Hanshake_OK 												= (1 << 4),
+} Status;
+
+Command LAST_CMD = Command_Invalid;
+Command CURRENT_CMD = Command_Invalid;
+
+/*
 
 typedef struct
 {
@@ -82,18 +98,31 @@ typedef struct
 LogRecord LOGS_QUEUE;
 
 #define pushLogQueueF(frmt, ... ) \
-	sprintf(LOGS_QUEUE.text, frmt"\r\n", __VA_ARGS__ );\
-	LOGS_QUEUE.size = strlen(LOGS_QUEUE.text);
+	sprintf(LOGS_QUEUE.text, "[Msg]:"frmt"\r\n", __VA_ARGS__ );\
+	LOGS_QUEUE.size = strlen(LOGS_QUEUE.text); \
+  if ( LOGS_QUEUE.size == 14 ) { LOGS_QUEUE.size++; LOGS_QUEUE.text[14] = ' '; LOGS_QUEUE.text[15] = '\0'; } \
+	CDC_Transmit_FS((uint8_t*)LOGS_QUEUE.text, LOGS_QUEUE.size);
 	
 LogRecord popLogQueue()
 {
 	LogRecord ret = LOGS_QUEUE;
 	return ret;
 }
+*/
 
 #ifdef MCP2515_ENABLED
+
+#pragma pack (push, 1)
+
+typedef struct {
+	uCAN_MSG rxCAN;
+	uint32_t status;
+} Message;
+
+#pragma pack(pop)
+
 uCAN_MSG txMessage;
-uCAN_MSG rxMessage;
+Message rxMessage;
 #endif//MCP2515_ENABLED
 /* USER CODE END PV */
 
@@ -110,13 +139,32 @@ static void MX_SPI1_Init(void);
 /* USER CODE BEGIN 0 */
 void USBD_Reciever_USER(uint8_t * Buf, uint32_t *Len)
 {
-	if ( Buf[0] == 49 ){
-		CURRENT_STATE = State_On;
+	if ( *Len == 14 ){
+		memcpy(&txMessage, Buf, *Len); // Copy as is
+		CURRENT_CMD = Command_Tx;
+		return;
 	}
-	if ( Buf[0] == 48 ){
-		CURRENT_STATE = State_Off;
+	if ( *Len != 1 ){
+		//pushLogQueueF("Wrong message size: %d", *Len);
+		return;
+	}
+	uint8_t cmd = Buf[0];
+	if ( cmd >= Command_MAX ){
+		//pushLogQueueF("Wrond command value: %d; Help - '0'", cmd);
+		return;
+	}
+	CURRENT_CMD = (Command)cmd;
+}
+
+void StatusUpdateError(uint32_t * pStatus, Status value, BOOL isActive)
+{
+	if ( isActive ){
+		*pStatus |= value;
+	} else {
+		*pStatus &= ~value;
 	}
 }
+
 /* USER CODE END 0 */
 
 /**
@@ -127,8 +175,8 @@ void USBD_Reciever_USER(uint8_t * Buf, uint32_t *Len)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	uint8_t ret = 0;
-	uint8_t ret2 = 0;
+	int ret = 0;
+	int counter = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -153,22 +201,9 @@ int main(void)
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 #ifdef MCP2515_ENABLED
-
-	txMessage.frame.idType = dSTANDARD_CAN_MSG_ID_2_0B;
-	txMessage.frame.id = 0x0A;
-	txMessage.frame.dlc = 8;
-	txMessage.frame.data0 = 0;
-	txMessage.frame.data1 = 1;
-	txMessage.frame.data2 = 2;
-	txMessage.frame.data3 = 3;
-	txMessage.frame.data4 = 4;
-	txMessage.frame.data5 = 5;
-	txMessage.frame.data6 = 6;
-	txMessage.frame.data7 = 7;
-	CANSPI_Transmit(&txMessage);
-
+	memset(&rxMessage, 0, sizeof(rxMessage));
 	ret = CANSPI_Initialize();
-	pushLogQueueF("CANSPI_Initialize with res: %d", ret);
+	StatusUpdateError(&rxMessage.status, Status_Error_CANSPI_Was_Not_initilized, ret != 0);
 #endif//MCP2515_ENABLED
   /* USER CODE END 2 */
 
@@ -176,59 +211,39 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
-		
-		if ( LOGS_QUEUE.size > 0 ){
-			LogRecord rec = popLogQueue();
-			CDC_Transmit_FS((uint8_t*)rec.text, rec.size);
-			LOGS_QUEUE.size = 0;
-		}
-		
-		if(CANSPI_Receive(&rxMessage))
-    {
-			/*
-      txMessage.frame.idType = rxMessage.frame.idType;
-      txMessage.frame.id = rxMessage.frame.id;
-      txMessage.frame.dlc = rxMessage.frame.dlc;
-      txMessage.frame.data0++;
-      txMessage.frame.data1 = rxMessage.frame.data1;
-      txMessage.frame.data2 = rxMessage.frame.data2;
-      txMessage.frame.data3 = rxMessage.frame.data3;
-      txMessage.frame.data4 = rxMessage.frame.data4;
-      txMessage.frame.data5 = rxMessage.frame.data5;
-      txMessage.frame.data6 = rxMessage.frame.data6;
-      txMessage.frame.data7 = rxMessage.frame.data7;
-      CANSPI_Transmit(&txMessage);
-			*/
-    }
-		
-		if ( CURRENT_STATE != PREV_STATE ){
-			switch(CURRENT_STATE){
-				case State_On:
+		if ( CURRENT_CMD != LAST_CMD ){
+			switch(CURRENT_CMD){
+				case Command_Turn_CAN120_On:
 					HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_SET);
-					PREV_STATE = CURRENT_STATE;
 					break;
-				case State_Off:
+				case Command_Turn_CAN120_Off:
 					HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_RESET);
+					break;
+				case Command_Tx:
 					ret = CANSPI_Transmit(&txMessage);
-					ret2 = CANSPI_isTxErrorPassive();
-					pushLogQueueF("CANSPI_Transmit with res: %d; Error: %d", ret, ret2);
-				
-					if ( ret2 != 0) {
-						MCP2515_Reset();
-						HAL_Delay(1);
-						ret = CANSPI_Initialize();
-						//pushLogQueueF("CANSPI_Initialize with res: %d", ret);
-					}
-					PREV_STATE = State_On;
-					CURRENT_STATE = State_On;
+				  StatusUpdateError(&rxMessage.status, Status_Error_CANSPI_Transmit, ret == 0);
+					break;
+				case Command_Handshake_Comes:
+					StatusUpdateError(&rxMessage.status, Status_Hanshake_OK, TRUE);
+					break;
+				default:
+					//do nothing
 					break;
 			};
+			LAST_CMD = CURRENT_CMD;
 		}
 		
+		StatusUpdateError(&rxMessage.status, Status_Error_CANSPI_Transmit_Passive, CANSPI_isTxErrorPassive());
+		StatusUpdateError(&rxMessage.status, Status_Error_CANSPI_Recieve_Passive, CANSPI_isRxErrorPassive());
+		
+		if(CANSPI_Receive(&rxMessage.rxCAN))
+    {
+			CDC_Transmit_FS((uint8_t*)&rxMessage, sizeof(rxMessage));
+			memset(&rxMessage.rxCAN, 0, sizeof(rxMessage.rxCAN));
+    }
   }
   /* USER CODE END 3 */
 

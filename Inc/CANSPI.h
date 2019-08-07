@@ -14,6 +14,8 @@
 #define FALSE 1
 #endif
 
+#pragma pack(push, 1)
+
 typedef union {
   struct {
     uint8_t idType;
@@ -30,6 +32,8 @@ typedef union {
   } frame;
   uint8_t array[14];
 } uCAN_MSG;
+
+#pragma pack(pop)
 
 #define dSTANDARD_CAN_MSG_ID_2_0B 1
 #define dEXTENDED_CAN_MSG_ID_2_0B 2
