@@ -50,7 +50,6 @@
 #include "main.h"
 #include "stm32f0xx_hal.h"
 #include "usb_device.h"
-
 /* USER CODE BEGIN Includes */
 #include "usbd_cdc_if.h"
 #include "CANSPI.h"
@@ -58,110 +57,155 @@
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
-
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
-#define BOOL uint8_t
 #define LOG_RECORDS_SIZE 8
+#define bool uint8_t
+#define true 1
+#define false 0
 
 typedef enum
 {
-	Command_Tx = -2,
+	Status_Error_CANSPI_Was_Not_initilized = 1,
+	Status_Error_CANSPI_Transmit = 2,
+	Status_Error_CANSPI_Transmit_Passive = 4,
+	Status_Error_CANSPI_Recieve_Passive = 8,
+	Status_Hanshake_OK = 16,
+	Status_With_CAN_Body = 32,
+	Status_TestPin = 64,
+	Status_Error_HAL = 128,
+} Status;
+
+typedef enum
+{
 	Command_Invalid = -1,
 	Command_Turn_CAN120_On = 0,
 	Command_Turn_CAN120_Off,
+	Command_Tx_CAN,
 	Command_Handshake_Comes,
-	Command_MAX,
+	Command_Reset_CAN,
+	Command_MAX
 } Command;
 
-typedef enum 
-{
-	Status_Error_CANSPI_Was_Not_initilized 		= (1 << 0),
-	Status_Error_CANSPI_Transmit 							= (1 << 1),
-	Status_Error_CANSPI_Transmit_Passive 			= (1 << 2),
-	Status_Error_CANSPI_Recieve_Passive 			= (1 << 3),
-	Status_Hanshake_OK 												= (1 << 4),
-} Status;
-
-Command LAST_CMD = Command_Invalid;
-Command CURRENT_CMD = Command_Invalid;
-
-/*
-
-typedef struct
-{
-	uint8_t size;
-	char text[64];
-} LogRecord;
-
-LogRecord LOGS_QUEUE;
-
-#define pushLogQueueF(frmt, ... ) \
-	sprintf(LOGS_QUEUE.text, "[Msg]:"frmt"\r\n", __VA_ARGS__ );\
-	LOGS_QUEUE.size = strlen(LOGS_QUEUE.text); \
-  if ( LOGS_QUEUE.size == 14 ) { LOGS_QUEUE.size++; LOGS_QUEUE.text[14] = ' '; LOGS_QUEUE.text[15] = '\0'; } \
-	CDC_Transmit_FS((uint8_t*)LOGS_QUEUE.text, LOGS_QUEUE.size);
-	
-LogRecord popLogQueue()
-{
-	LogRecord ret = LOGS_QUEUE;
-	return ret;
-}
-*/
+Command CURRENT_STATE = Command_Invalid;
 
 #ifdef MCP2515_ENABLED
 
-#pragma pack (push, 1)
-
-typedef struct {
-	uCAN_MSG rxCAN;
+#pragma pack(push, 1)
+typedef struct
+{
 	uint32_t status;
+	uCAN_MSG msg;
 } Message;
-
 #pragma pack(pop)
 
-uCAN_MSG txMessage;
-Message rxMessage;
+typedef struct
+{
+	Message rx;
+	uCAN_MSG tx;
+	uint32_t lastStatus;
+} Context;
+
 #endif//MCP2515_ENABLED
 /* USER CODE END PV */
-
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
-
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
-
 /* USER CODE END PFP */
-
 /* USER CODE BEGIN 0 */
 void USBD_Reciever_USER(uint8_t * Buf, uint32_t *Len)
 {
-	if ( *Len == 14 ){
-		memcpy(&txMessage, Buf, *Len); // Copy as is
-		CURRENT_CMD = Command_Tx;
+	if ( *Len != 1 || Buf[0] >= Command_MAX  ) {
 		return;
 	}
-	if ( *Len != 1 ){
-		//pushLogQueueF("Wrong message size: %d", *Len);
-		return;
-	}
-	uint8_t cmd = Buf[0];
-	if ( cmd >= Command_MAX ){
-		//pushLogQueueF("Wrond command value: %d; Help - '0'", cmd);
-		return;
-	}
-	CURRENT_CMD = (Command)cmd;
+	CURRENT_STATE = (Command)Buf[0];
 }
 
-void StatusUpdateError(uint32_t * pStatus, Status value, BOOL isActive)
+void updateState(Context * pContext, Status status, bool flag)
 {
-	if ( isActive ){
-		*pStatus |= value;
-	} else {
-		*pStatus &= ~value;
+	if ( !flag ){
+		pContext->rx.status &= ~status;
+	}
+	if ( flag ){
+		pContext->rx.status |= status;
+	}
+}
+
+bool getState(Context * pContext, Status status)
+{
+	return (pContext->rx.status & status) != 0 ? true : false;
+}
+
+void processIncomingCommand(Context * pContext)
+{
+	uCAN_MSG txMessage;
+	uint8_t res = 0;
+	if ( CURRENT_STATE != Command_Invalid ){
+		switch ( CURRENT_STATE ){
+			case Command_Turn_CAN120_On:
+				HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_SET);
+				break;
+			case Command_Turn_CAN120_Off:
+				HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_RESET);
+				break;
+			case Command_Tx_CAN:
+				txMessage.frame.idType = dSTANDARD_CAN_MSG_ID_2_0B;
+				txMessage.frame.id = 0xAA;
+				txMessage.frame.dlc = 2;
+				txMessage.frame.data0 = 0xCC;
+				txMessage.frame.data1 = 0xBB;
+				res = CANSPI_Transmit(&txMessage);
+				updateState(pContext, Status_Error_CANSPI_Transmit, res == 0);
+				updateState(pContext, Status_TestPin, !getState(pContext, Status_TestPin));
+				break;
+			case Command_Handshake_Comes:
+				updateState(pContext, Status_Hanshake_OK, true);
+				break;
+			case Command_Reset_CAN:
+				MCP2515_Reset();
+				HAL_Delay(1);
+				res = CANSPI_Initialize();
+				updateState(pContext, Status_Error_CANSPI_Was_Not_initilized, res != 0);
+				break;
+			default:
+				break;
+		}
+		CURRENT_STATE = Command_Invalid; // Single invocation
+	}
+}
+
+void processIncomingMessages(Context * pContext)
+{
+	uint8_t res = 0;
+	res = CANSPI_isTxErrorPassive();
+	updateState(pContext, Status_Error_CANSPI_Transmit_Passive, res != 0);
+	res = CANSPI_isRxErrorPassive();
+	updateState(pContext, Status_Error_CANSPI_Recieve_Passive, res != 0);
+	if(CANSPI_Receive(&pContext->rx.msg))
+	{
+		updateState(pContext, Status_With_CAN_Body, true);
+	}
+}
+
+void sendStateAndMessage(Context * pContext)
+{
+	if ( pContext->lastStatus != pContext->rx.status ) {
+		if ( getState(pContext, Status_With_CAN_Body) == false ){
+			//Hasn't a CAN body
+			CDC_Transmit_FS((uint8_t*)&pContext->rx.status, sizeof(pContext->rx.status));
+		}
+		if ( getState(pContext, Status_With_CAN_Body) == true ){
+			//Has a CAN body
+			CDC_Transmit_FS((uint8_t*)&pContext->rx, sizeof(pContext->rx));
+			//cleanup
+			updateState(pContext, Status_With_CAN_Body, false);
+			memset(&pContext->rx.msg, 0, sizeof(pContext->rx.msg));
+		}
+		pContext->lastStatus = pContext->rx.status;
 	}
 }
 
@@ -175,78 +219,38 @@ void StatusUpdateError(uint32_t * pStatus, Status value, BOOL isActive)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	int ret = 0;
-	int counter = 0;
+	uint8_t ret = 0;
+	Context context;
   /* USER CODE END 1 */
-
   /* MCU Configuration----------------------------------------------------------*/
-
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
   /* USER CODE BEGIN Init */
-
   /* USER CODE END Init */
-
   /* Configure the system clock */
   SystemClock_Config();
-
   /* USER CODE BEGIN SysInit */
-
   /* USER CODE END SysInit */
-
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USB_DEVICE_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 #ifdef MCP2515_ENABLED
-	memset(&rxMessage, 0, sizeof(rxMessage));
 	ret = CANSPI_Initialize();
-	StatusUpdateError(&rxMessage.status, Status_Error_CANSPI_Was_Not_initilized, ret != 0);
+	updateState(&context, Status_Error_CANSPI_Was_Not_initilized, ret != 0);
 #endif//MCP2515_ENABLED
   /* USER CODE END 2 */
-
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
+  while (1) {
   /* USER CODE END WHILE */
-
   /* USER CODE BEGIN 3 */
-		if ( CURRENT_CMD != LAST_CMD ){
-			switch(CURRENT_CMD){
-				case Command_Turn_CAN120_On:
-					HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_SET);
-					break;
-				case Command_Turn_CAN120_Off:
-					HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_RESET);
-					break;
-				case Command_Tx:
-					ret = CANSPI_Transmit(&txMessage);
-				  StatusUpdateError(&rxMessage.status, Status_Error_CANSPI_Transmit, ret == 0);
-					break;
-				case Command_Handshake_Comes:
-					StatusUpdateError(&rxMessage.status, Status_Hanshake_OK, TRUE);
-					break;
-				default:
-					//do nothing
-					break;
-			};
-			LAST_CMD = CURRENT_CMD;
-		}
-		
-		StatusUpdateError(&rxMessage.status, Status_Error_CANSPI_Transmit_Passive, CANSPI_isTxErrorPassive());
-		StatusUpdateError(&rxMessage.status, Status_Error_CANSPI_Recieve_Passive, CANSPI_isRxErrorPassive());
-		
-		if(CANSPI_Receive(&rxMessage.rxCAN))
-    {
-			CDC_Transmit_FS((uint8_t*)&rxMessage, sizeof(rxMessage));
-			memset(&rxMessage.rxCAN, 0, sizeof(rxMessage.rxCAN));
-    }
+		processIncomingCommand(&context);
+		processIncomingMessages(&context);
+		sendStateAndMessage(&context);
   }
   /* USER CODE END 3 */
-
 }
 
 /**
