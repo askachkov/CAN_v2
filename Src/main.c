@@ -95,6 +95,7 @@ Command CURRENT_STATE = Command_Invalid;
 #pragma pack(push, 1)
 typedef struct
 {
+	uint8_t headerMSG;
 	uint32_t status;
 	uCAN_MSG msg;
 } Message;
@@ -119,9 +120,9 @@ static void MX_SPI1_Init(void);
 /* USER CODE BEGIN 0 */
 void USBD_Reciever_USER(uint8_t * Buf, uint32_t *Len)
 {
-	if ( *Len != 1 || Buf[0] >= Command_MAX  ) {
-		return;
-	}
+	//if ( *Len != 1 || Buf[0] >= Command_MAX  ) {
+	//	return;
+	//}
 	CURRENT_STATE = (Command)Buf[0];
 }
 
@@ -196,11 +197,11 @@ void sendStateAndMessage(Context * pContext)
 	if ( pContext->lastStatus != pContext->rx.status ) {
 		if ( getState(pContext, Status_With_CAN_Body) == false ){
 			//Hasn't a CAN body
-			CDC_Transmit_FS((uint8_t*)&pContext->rx.status, sizeof(pContext->rx.status));
+			CDC_Transmit_FS((uint8_t*)&pContext->rx, 11);
 		}
 		if ( getState(pContext, Status_With_CAN_Body) == true ){
 			//Has a CAN body
-			CDC_Transmit_FS((uint8_t*)&pContext->rx, sizeof(pContext->rx));
+			CDC_Transmit_FS((uint8_t*)&pContext->rx, 11+pContext->rx.msg.frame.dlc);
 			//cleanup
 			updateState(pContext, Status_With_CAN_Body, false);
 			memset(&pContext->rx.msg, 0, sizeof(pContext->rx.msg));
@@ -221,6 +222,8 @@ int main(void)
   /* USER CODE BEGIN 1 */
 	uint8_t ret = 0;
 	Context context;
+	memset(&context, 0, sizeof(context));
+	context.rx.headerMSG = 0xFF;
   /* USER CODE END 1 */
   /* MCU Configuration----------------------------------------------------------*/
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -249,6 +252,8 @@ int main(void)
 		processIncomingCommand(&context);
 		processIncomingMessages(&context);
 		sendStateAndMessage(&context);
+		//const char * MSG = "Hello\r\n";
+		//CDC_Transmit_FS((uint8_t*)MSG, strlen(MSG));
   }
   /* USER CODE END 3 */
 }
