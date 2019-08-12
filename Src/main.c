@@ -75,6 +75,7 @@ typedef enum
 	Status_With_CAN_Body = 32,
 	Status_TestPin = 64,
 	Status_Error_HAL = 128,
+	Status_Error_Input = 256,
 } Status;
 
 typedef enum
@@ -89,6 +90,7 @@ typedef enum
 } Command;
 
 Command CURRENT_STATE = Command_Invalid;
+uCAN_MSG txMessage;
 
 #ifdef MCP2515_ENABLED
 
@@ -104,7 +106,6 @@ typedef struct
 typedef struct
 {
 	Message rx;
-	uCAN_MSG tx;
 	uint32_t lastStatus;
 } Context;
 
@@ -120,10 +121,12 @@ static void MX_SPI1_Init(void);
 /* USER CODE BEGIN 0 */
 void USBD_Reciever_USER(uint8_t * Buf, uint32_t *Len)
 {
-	//if ( *Len != 1 || Buf[0] >= Command_MAX  ) {
-	//	return;
-	//}
-	CURRENT_STATE = (Command)Buf[0];
+	if ( *Len == 1 ){
+		CURRENT_STATE = (Command)Buf[0];
+	} else if ( *Len <= sizeof(uCAN_MSG) ) {
+		memcmp(&txMessage, Buf, *Len);
+		CURRENT_STATE = Command_Tx_CAN;
+	}
 }
 
 void updateState(Context * pContext, Status status, bool flag)
@@ -143,7 +146,6 @@ bool getState(Context * pContext, Status status)
 
 void processIncomingCommand(Context * pContext)
 {
-	uCAN_MSG txMessage;
 	uint8_t res = 0;
 	if ( CURRENT_STATE != Command_Invalid ){
 		switch ( CURRENT_STATE ){
@@ -154,11 +156,6 @@ void processIncomingCommand(Context * pContext)
 				HAL_GPIO_WritePin(PIN_CAN120_GPIO_Port, PIN_CAN120_Pin, GPIO_PIN_RESET);
 				break;
 			case Command_Tx_CAN:
-				txMessage.frame.idType = dSTANDARD_CAN_MSG_ID_2_0B;
-				txMessage.frame.id = 0xAA;
-				txMessage.frame.dlc = 2;
-				txMessage.frame.data0 = 0xCC;
-				txMessage.frame.data1 = 0xBB;
 				res = CANSPI_Transmit(&txMessage);
 				updateState(pContext, Status_Error_CANSPI_Transmit, res == 0);
 				updateState(pContext, Status_TestPin, !getState(pContext, Status_TestPin));
@@ -390,6 +387,7 @@ void _Error_Handler(char *file, int line)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+	
   while(1)
   {
   }
